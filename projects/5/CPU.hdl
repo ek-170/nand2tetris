@@ -32,5 +32,39 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-	//// Replace this comment with your code.
+    And (a=instruction[3], b=instruction[15], out=writeM);
+
+    // A命令ならi=0, C命令ならi=1
+    Mux16(a=instruction, b=aluout, sel=instruction[15], out=o1);
+    // d1=1 && i=1(C命令)の場合はAレジスタに書き込む
+    And (a=instruction[5], b=instruction[15], out=z);
+    // A命令の場合もAレジスタに書き込む
+    Not(in=instruction[15], out=z2);
+    Or(a=z, b=z2, out=loada);
+    // d1=0 && i=1(C命令)の場合のみ書き込まない
+    ARegister(in=o1, load=loada, out=a, out[0..14]=addressM);
+
+    PC(in=a, load=loadpc, inc=true, reset=reset, out[0..14]=pc);
+
+    // out A or M based on a bit
+    Mux16(a=a, b=inM, sel=instruction[12], out=am);
+
+    And (a=instruction[4], b=instruction[15], out=loadd);
+    DRegister(in=aluout, load=loadd, out=d);
+
+    ALU(x=d, y=am, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluout, out=outM, zr=zr, ng=ng);
+
+    // set loadpc
+    Not (in=zr, out=notzr);
+    Not (in=ng, out=notng);
+    And (a=instruction[2], b=ng, out=w1);
+    And (a=instruction[0], b=notng, out=w2);
+    Or (a=w1, b=w2, out=w3);
+    And (a=notzr, b=w3, out=w4);
+    And (a=instruction[1], b=zr, out=w5);
+    Or (a=w4, b=w5, out=w6);
+    And (a=instruction[15], b=w6, out=loadpc);
+
+    // A命令の場合でもALUでの演算は走る
+    // A命令の場合はDレジスタやPCに書き込まないようにする
 }
