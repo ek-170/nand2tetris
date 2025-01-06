@@ -35,6 +35,17 @@ func NewParserWithFile(source *os.File, destPath string) Parser {
 
 func (p Parser) Do() {
 	scanner := bufio.NewScanner(p.source)
+	defer func() {
+		if err := p.source.Close(); err != nil {
+			log.Fatalln(err.Error())
+		}
+		closer, ok := p.dest.(io.Closer)
+		if ok {
+			if err := closer.Close(); err != nil {
+				log.Fatalln(err.Error())
+			}
+		}
+	}()
 	romAddress := 0
 
 	for scanner.Scan() {

@@ -26,6 +26,7 @@ func main() {
 		fmt.Println("could not open assembly file")
 		return
 	}
+	defer f.Close()
 	p := NewParserWithFile(f, *dest)
 	p.Do()
 }
