@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type Parser struct {
@@ -35,17 +36,19 @@ func (p Parser) Do(source *os.File) {
 	scanner := bufio.NewScanner(source)
 	cwriter := NewCodeWriter(strings.TrimRight(filepath.Base(source.Name()), ".vm"), p.dest)
 
-	// cwriter.InitSP()
+	cwriter.InitSP()
 	cwriter.Comment(fmt.Sprintf("---%s---", source.Name()))
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		commandLine := strings.TrimLeft(line, " ")
-		if isComment(commandLine) || commandLine == "" {
+		tokens, skip := tokenizeCommand(line)
+		if skip {
 			continue
 		}
-		command := strings.ToLower(strings.Split(commandLine, " ")[0])
-
+		if len(tokens) == 0 {
+			log.Fatalf("invalid command line detected %q", tokens)
+		}
+		command := strings.ToLower(tokens[0])
 		switch p.CommandType(command) {
 		case arithCommand:
 			switch command {
@@ -71,17 +74,21 @@ func (p Parser) Do(source *os.File) {
 				log.Fatalf("unknown arithmetic command %q\n", command)
 			}
 		case pushCommand:
-			seg, index := parsePushPop(line)
-			cwriter.Push(seg, index)
+			cwriter.Push(validatePushAndPop(tokens))
 		case popCommand:
-			seg, index := parsePushPop(line)
-			cwriter.Pop(seg, index)
+			cwriter.Pop(validatePushAndPop(tokens))
 		case labelCommand:
+			cwriter.Label(validateLabel(tokens))
 		case gotoCommand:
+			cwriter.Goto(validateProgramFlow(tokens))
 		case ifCommand:
+			cwriter.IfGoto(validateProgramFlow(tokens))
 		case functionCommand:
+			cwriter.Func(validateFuncAndCall(tokens))
 		case returnCommand:
+			cwriter.Return()
 		case callCommand:
+			cwriter.Call(validateFuncAndCall(tokens))
 		default:
 			log.Fatalf("unknown command %q\n", command)
 		}
@@ -117,7 +124,7 @@ var commands map[string]cType = map[string]cType{
 	"pop":      popCommand,
 	"label":    labelCommand,
 	"goto":     gotoCommand,
-	"if":       ifCommand,
+	"if-goto":  ifCommand,
 	"function": functionCommand,
 	"return":   returnCommand,
 	"call":     callCommand,
@@ -131,24 +138,103 @@ func (p Parser) CommandType(c string) cType {
 	return command
 }
 
-func isComment(l string) bool {
-	return strings.HasPrefix(l, "//")
+func tokenizeCommand(line string) (tokens []string, skip bool) {
+	// 行頭・行末の空白をトリム
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "//") {
+		return nil, true // 空行またはコメント行はスキップ
+	}
+
+	var tokenBuilder strings.Builder
+	var tokensCollected []string
+	var isFirstToken, isPrevSlash bool
+	isFirstToken = true
+
+	for i, r := range line {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ':' || r == '.' || r == '_' || (isFirstToken && r == '-') {
+			if isPrevSlash {
+				log.Fatalf("invalid character %q detected in line: %q", r, line[:i+1])
+			}
+			tokenBuilder.WriteRune(r) // 有効な文字をトークンに追加
+			isPrevSlash = false
+			continue
+		}
+
+		if r == '/' {
+			if isPrevSlash { // "//" コメント部分を検出
+				isPrevSlash = false
+				break
+			}
+			isPrevSlash = true
+			continue
+		}
+
+		if unicode.IsSpace(r) { // トークンの終了を検出
+			if tokenBuilder.Len() > 0 {
+				if isPrevSlash {
+					log.Fatalf("invalid character %q detected in line: %q", r, line[:i+1])
+				}
+				tokensCollected = append(tokensCollected, tokenBuilder.String())
+				tokenBuilder.Reset()
+				isFirstToken = false
+				isPrevSlash = false
+			}
+			continue
+		}
+
+		// 不正な文字を検出
+		log.Fatalf("invalid character %q detected in line: %q", r, line[:i+1])
+	}
+
+	if isPrevSlash {
+		log.Fatalf("invalid character %q detected in line: %q", "/", line)
+	}
+
+	// 最後のトークンを追加
+	if tokenBuilder.Len() > 0 {
+		tokensCollected = append(tokensCollected, tokenBuilder.String())
+	}
+	return tokensCollected, false
 }
 
-func parsePushPop(l string) (seg Segment, index int) {
-	commands := strings.Split(l, " ")
-	if len(commands) != 3 {
-		log.Fatalf("invalid push command %q has detected\n", l)
+func validatePushAndPop(tokens []string) (seg Segment, index int) {
+	if len(tokens) != 3 {
+		log.Fatalf("invalid push/pop command %q has detected\n", tokens)
 	}
-	index, err := strconv.Atoi(commands[2])
+	index, err := strconv.Atoi(tokens[2])
 	if err != nil {
-		log.Fatalf("invalid constant value %q has detected: %v\n", commands[2], err)
+		log.Fatalf("invalid constant value %q has detected: %v\n", tokens[2], err)
 	}
-	seg, ok := Segments[commands[1]]
+	seg, ok := Segments[tokens[1]]
 	if !ok {
-		log.Fatalf("invalid segment value %q has detected\n", commands[1])
+		log.Fatalf("invalid segment value %q has detected\n", tokens[1])
 	}
 	return seg, index
+}
+
+func validateLabel(tokens []string) string {
+	if len(tokens) != 2 {
+		log.Fatalf("invalid label command %q has detected\n", tokens)
+	}
+	return tokens[1]
+}
+
+func validateProgramFlow(tokens []string) (label string) {
+	if len(tokens) != 2 {
+		log.Fatalf("invalid program flow command %q has detected\n", tokens)
+	}
+	return tokens[1]
+}
+
+func validateFuncAndCall(tokens []string) (name string, local int) {
+	if len(tokens) != 3 {
+		log.Fatalf("invalid func/call command %q has detected\n", tokens)
+	}
+	local, err := strconv.Atoi(tokens[2])
+	if err != nil {
+		log.Fatalf("invalid value %q has detected: %v\n", tokens[2], err)
+	}
+	return tokens[1], local
 }
 
 func (p Parser) Close() error {
