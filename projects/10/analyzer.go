@@ -10,8 +10,8 @@ import (
 const jackExt = ".jack"
 
 type JackWriter interface {
-	WriteTokens(tokens []Token) error
-	WriteParsedTokens(tokens []Token) error
+	WriteTokens(tokens []*Token) error
+	WriteParsedTokens(tokens *Token) error
 }
 
 type JackAnalyzer struct {

@@ -11,7 +11,7 @@ type (
 	}
 
 	XMLToken struct {
-		Token
+		*Token
 	}
 )
 
@@ -35,7 +35,7 @@ func (t XMLToken) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	return nil
 }
 
-func encodeChild(e *xml.Encoder, child Token) error {
+func encodeChild(e *xml.Encoder, child *Token) error {
 	start := xml.StartElement{Name: xml.Name{Local: string(child.Type)}}
 	if err := e.EncodeToken(start); err != nil {
 		return err
@@ -62,9 +62,9 @@ func NewXMLWriter(w io.Writer) XMLWriter {
 	}
 }
 
-func (x XMLWriter) WriteTokens(tokens []Token) error {
+func (x XMLWriter) WriteTokens(tokens []*Token) error {
 	root := XMLToken{
-		Token: Token{
+		Token: &Token{
 			Type:     "tokens",
 			Children: tokens,
 		},
@@ -79,6 +79,16 @@ func (x XMLWriter) WriteTokens(tokens []Token) error {
 	return nil
 }
 
-func (x XMLWriter) WriteParsedTokens(tokens []Token) error {
+func (x XMLWriter) WriteParsedTokens(token *Token) error {
+	root := XMLToken{
+		Token: token,
+	}
+	output, err := xml.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := x.w.Write(output); err != nil {
+		return err
+	}
 	return nil
 }

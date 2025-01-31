@@ -10,12 +10,32 @@ import (
 
 type TokenType string
 
+// Terminal
 const (
 	keyword         TokenType = "keyword"
 	symbol          TokenType = "symbol"
 	integerConstant TokenType = "integerConstant"
 	stringConstant  TokenType = "stringConstant"
 	identifier      TokenType = "identifier"
+)
+
+// Non-Terminal
+const (
+	class           TokenType = "class"
+	classVarDec     TokenType = "classVarDec"
+	subroutineDec   TokenType = "subroutineDec"
+	parameterList   TokenType = "parameterList"
+	subroutineBody  TokenType = "subroutineBody"
+	varDec          TokenType = "varDec"
+	statements      TokenType = "statements"
+	whileStatement  TokenType = "whileStatement"
+	ifStatement     TokenType = "ifStatement"
+	returnStatement TokenType = "returnStatement"
+	letStatement    TokenType = "letStatement"
+	doStatement     TokenType = "doStatement"
+	expression      TokenType = "expression"
+	term            TokenType = "term"
+	expressionList  TokenType = "expressionList"
 )
 
 var (
@@ -42,6 +62,7 @@ var (
 		"while",
 		"return",
 	}
+
 	symbols = []string{
 		"{",
 		"}",
@@ -68,7 +89,7 @@ var (
 type Token struct {
 	Type     TokenType
 	Value    string
-	Children []Token
+	Children []*Token
 }
 
 type JackTokenizer struct {
@@ -87,17 +108,17 @@ const (
 	tab   = "\t"
 )
 
-func (jt JackTokenizer) Tokenize() ([]Token, error) {
+func (jt JackTokenizer) Tokenize() ([]*Token, error) {
 
 	var maybeCommentStartChars, maybeCommentEndChars string
 	isLineCommenting, isMultiLineCommenting, isAPICommenting := false, false, false
 
-	tokens := []Token{}
+	tokens := []*Token{}
 	builder := strings.Builder{}
 	b := bufio.NewReader(jt.src)
 
 redo:
-	token := Token{}
+	token := &Token{}
 	for {
 		r, _, err := b.ReadRune()
 		if err != nil {
@@ -109,12 +130,12 @@ redo:
 		char := string(r)
 
 		if maybeCommentStartChars == "/" && !(char == "/" || char == "*") {
-			token = Token{}
+			token = &Token{}
 			token.Type = symbol
 			token.Value = "/"
 			tokens = append(tokens, token)
 			maybeCommentStartChars = ""
-			token = Token{}
+			token = &Token{}
 		}
 
 		// タブ、スペースはtokenize中以外無視
@@ -264,7 +285,7 @@ redo:
 				tokens = append(tokens, token)
 				builder.Reset()
 			}
-			token = Token{}
+			token = &Token{}
 			token.Type = symbol
 			token.Value = char
 			tokens = append(tokens, token)

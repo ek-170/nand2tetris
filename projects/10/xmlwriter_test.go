@@ -6,14 +6,14 @@ import (
 )
 
 func TestXMLWriter(t *testing.T) {
-	tokens := []Token{
+	tokens := []*Token{
 		{
 			Type: "keyword",
-			Children: []Token{
+			Children: []*Token{
 				{
 					Type:  "keyword",
 					Value: "while",
-					Children: []Token{
+					Children: []*Token{
 						{
 							Type:  "simbol",
 							Value: "+",
