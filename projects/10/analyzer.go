@@ -17,8 +17,7 @@ type JackWriter interface {
 type JackAnalyzer struct {
 	src, dst  *os.File
 	tokenizer JackTokenizer
-	// engine    CompilationEngine
-	w JackWriter
+	w         JackWriter
 }
 
 func NewJackAnalyzer(srcFilePath string) (JackAnalyzer, error) {
@@ -33,7 +32,7 @@ func NewJackAnalyzer(srcFilePath string) (JackAnalyzer, error) {
 	dstDir := filepath.Dir(srcFilePath)
 	dstPath := filepath.Join(dstDir, distFileName)
 	// 既存のxmlの削除防止のために_をつける
-	dstFile, err := OpenFileWithReset(dstPath + "_.xml")
+	dstFile, err := OpenFileWithReset(dstPath + "_p.xml")
 	if err != nil {
 		return JackAnalyzer{}, fmt.Errorf("failed to open or create file: %w", err)
 	}
@@ -50,10 +49,17 @@ func (ja JackAnalyzer) Analyze() error {
 	if err != nil {
 		return nil
 	}
-	if err := ja.w.WriteTokens(tokens); err != nil {
+	// if err := ja.w.WriteTokens(tokens); err != nil {
+	// 	return err
+	// }
+	engine := NewCompilationEngine(tokens)
+	parsed, err := engine.Parse()
+	if err != nil {
 		return err
 	}
-	// TODO add parse
+	if err := ja.w.WriteParsedTokens(parsed); err != nil {
+		return err
+	}
 	return nil
 }
 

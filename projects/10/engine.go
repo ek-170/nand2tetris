@@ -103,7 +103,7 @@ LOOP:
 			return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, keyword)
 		}
 	}
-	fmt.Printf("complete parse all tokens. inout tokens: %v, parsed tokens: %v\n", len(c.input), c.pos)
+	fmt.Printf("complete parse all tokens. input tokens: %v, parsed tokens: %v\n", len(c.input), c.pos)
 	return classToken, nil
 }
 
@@ -305,10 +305,12 @@ LOOP:
 			if !ok {
 				return nil, fmt.Errorf(ErrNoTokenExists, "varName")
 			}
-			if t2.Type != identifier {
-				return nil, fmt.Errorf(ErrNotSuitableToken, t2.Value, identifier)
-			}
 			paramList.Children = append(paramList.Children, t2)
+			t3, ok := c.next()
+			if !ok {
+				return nil, fmt.Errorf(ErrNoTokenExists, "varName")
+			}
+			paramList.Children = append(paramList.Children, t3)
 		case ")":
 			// parameterList is not contained teminal ")"
 			c.rewind()
@@ -333,18 +335,22 @@ func (c *CompilationEngine) compileSubroutineBody() (*Token, error) {
 	}
 	subrBody.Children = append(subrBody.Children, t)
 
-	// varDec
-	t, ok = c.next()
-	if !ok {
-		return nil, fmt.Errorf(ErrNoTokenExists, "varDec | statements")
-	}
-	c.rewind()
-	if t.Value == "var" && t.Type == keyword {
-		varDecTokens, err := c.compileVarDec()
-		if err != nil {
-			return nil, err
+	// varDec*
+	for {
+		t, ok = c.next()
+		if !ok {
+			return nil, fmt.Errorf(ErrNoTokenExists, "varDec | statements")
 		}
-		subrBody.Children = append(subrBody.Children, varDecTokens)
+		c.rewind()
+		if t.Value == "var" && t.Type == keyword {
+			varDecTokens, err := c.compileVarDec()
+			if err != nil {
+				return nil, err
+			}
+			subrBody.Children = append(subrBody.Children, varDecTokens)
+			continue
+		}
+		break
 	}
 
 	// statements
@@ -362,6 +368,7 @@ func (c *CompilationEngine) compileSubroutineBody() (*Token, error) {
 	if t.Value != "}" || t.Type != symbol {
 		return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
 	}
+	subrBody.Children = append(subrBody.Children, t)
 	return subrBody, nil
 }
 
@@ -646,7 +653,7 @@ func (c *CompilationEngine) compileIfStatements() (*Token, error) {
 	if !ok {
 		return nil, fmt.Errorf(ErrNoTokenExists, "else")
 	}
-	if t.Value != "else" && t.Type != keyword {
+	if t.Value != "else" {
 		// end of if statement
 		c.rewind()
 		return ifStatement, nil
@@ -684,13 +691,13 @@ func (c *CompilationEngine) compileIfStatements() (*Token, error) {
 }
 
 func (c *CompilationEngine) compileWhileStatements() (*Token, error) {
-	// ["if"] must be keyword "if"
+	// ["while"] must be keyword "while"
 	t, ok := c.next()
 	if !ok {
-		return nil, fmt.Errorf(ErrNoTokenExists, "if")
+		return nil, fmt.Errorf(ErrNoTokenExists, "while")
 	}
-	if t.Value != "if" || t.Type != keyword {
-		return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, "if")
+	if t.Value != "while" || t.Type != keyword {
+		return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, "while")
 	}
 	whileStatement := &Token{
 		Type:     whileStatement,
@@ -808,12 +815,17 @@ func (c *CompilationEngine) compileReturnStatements() (*Token, error) {
 		return nil, fmt.Errorf(ErrNoTokenExists, ";")
 	}
 	if t.Value != ";" {
+		c.rewind()
 		// compile expression
 		expr, err := c.compileExpression()
 		if err != nil {
 			return nil, err
 		}
 		returnStatement.Children = append(returnStatement.Children, expr)
+		t, ok = c.next()
+		if !ok {
+			return nil, fmt.Errorf(ErrNoTokenExists, ";")
+		}
 	}
 	returnStatement.Children = append(returnStatement.Children, t)
 
@@ -885,26 +897,6 @@ func (c *CompilationEngine) compileTerm() (*Token, error) {
 			return nil, err
 		}
 		term.Children = append(term.Children, innerTerm)
-	case "[":
-		if t.Type != symbol {
-			return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
-		}
-		term.Children = append(term.Children, t)
-		// compile expression
-		expr, err := c.compileExpression()
-		if err != nil {
-			return nil, err
-		}
-		term.Children = append(term.Children, expr)
-		// ["]"] must be "]"
-		t, ok = c.next()
-		if !ok {
-			return nil, fmt.Errorf(ErrNoTokenExists, "]")
-		}
-		if t.Value != "]" || t.Type != symbol {
-			return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
-		}
-		term.Children = append(term.Children, t)
 	case "(":
 		if t.Type != symbol {
 			return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
@@ -929,10 +921,51 @@ func (c *CompilationEngine) compileTerm() (*Token, error) {
 		if isIntegerConstant(t) || isStringConstant(t) {
 			term.Children = append(term.Children, t)
 		} else if t.Type == identifier {
-			// subroutine call
-			c.rewind()
-			if err := c.compileSubroutineCall(term); err != nil {
-				return nil, err
+			t, ok = c.next()
+			if !ok {
+				return nil, fmt.Errorf(ErrNoTokenExists, "")
+			}
+			if (t.Value == "(" || t.Value == ".") && t.Type == symbol {
+				// case subroutineCall
+				c.rewind()
+				c.rewind()
+				if err := c.compileSubroutineCall(term); err != nil {
+					return nil, err
+				}
+			} else if t.Value == "[" && t.Type == symbol {
+				// case varName[]
+				c.rewind()
+				t, _ := c.current()
+				term.Children = append(term.Children, t)
+				// ["["] must be "["
+				t, ok = c.next()
+				if !ok {
+					return nil, fmt.Errorf(ErrNoTokenExists, "[")
+				}
+				if t.Type != symbol {
+					return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
+				}
+				term.Children = append(term.Children, t)
+				// compile expression
+				expr, err := c.compileExpression()
+				if err != nil {
+					return nil, err
+				}
+				term.Children = append(term.Children, expr)
+				// ["]"] must be "]"
+				t, ok = c.next()
+				if !ok {
+					return nil, fmt.Errorf(ErrNoTokenExists, "]")
+				}
+				if t.Value != "]" || t.Type != symbol {
+					return nil, fmt.Errorf(ErrNotSuitableToken, t.Value, symbol)
+				}
+				term.Children = append(term.Children, t)
+			} else {
+				// case varName
+				c.rewind()
+				t, _ := c.current()
+				term.Children = append(term.Children, t)
 			}
 		}
 	}
@@ -940,7 +973,6 @@ func (c *CompilationEngine) compileTerm() (*Token, error) {
 	return term, nil
 }
 
-// FIXME subroutineName(expressionList) | (className | varName).subroutineName(expressionList)
 func (c *CompilationEngine) compileSubroutineCall(parent *Token) error {
 	// [subroutineName | (className | varName)] must be identifier
 	t, ok := c.next()
